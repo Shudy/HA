@@ -1,9 +1,9 @@
 blueprint:
-  name: "IKEA STYRBAR para NYMÅNE (MQTT Direct)"
+  name: "IKEA STYRBAR para NYMÅNE (Acciones Personalizadas)"
   description: >
-    Control optimizado para bombilla IKEA NYMÅNE (LED2201G8) usando el mando IKEA STYRBAR (E2001/E2002)
-    utilizando directamente mensajes MQTT. Esta versión funciona incluso cuando el STYRBAR 
-    no expone entidades de acción en Home Assistant.
+    Control personalizado para bombilla IKEA NYMÅNE (LED2201G8) usando el mando IKEA STYRBAR (E2001/E2002)
+    con acciones específicas para encender/apagar, ajustar brillo gradualmente y
+    cambiar la temperatura de color.
   domain: automation
   input:
     styrbar_mqtt_topic:
@@ -21,7 +21,7 @@ blueprint:
     transition_time:
       name: "Tiempo de transición"
       description: "Tiempo en segundos para las transiciones de brillo/color"
-      default: 1.0
+      default: 0.5
       selector:
         number:
           min: 0.1
@@ -31,25 +31,30 @@ blueprint:
     brightness_step:
       name: "Incremento de brillo"
       description: "Porcentaje a incrementar/decrementar el brillo en cada pulsación"
-      default: 20
+      default: 5
+      selector:
+        number:
+          min: 1
+          max: 20
+          step: 1
+          unit_of_measurement: "%"
+    color_temp_step:
+      name: "Incremento de temperatura de color"
+      description: "Valor mired a incrementar/decrementar en cada pulsación"
+      default: 25
       selector:
         number:
           min: 5
           max: 50
           step: 5
-          unit_of_measurement: "%"
+          unit_of_measurement: "mired"
 
 variables:
   mqtt_topic: !input styrbar_mqtt_topic
   light: !input light
   transition_time: !input transition_time
   brightness_step: !input brightness_step
-  # Valores específicos para NYMÅNE LED2201G8
-  min_brightness: 5
-  max_brightness: 100
-  warm_color_temp: 2200  # Valor más cálido disponible para NYMÅNE
-  cold_color_temp: 4000  # Valor más frío disponible para NYMÅNE
-  mid_color_temp: 3000   # Valor intermedio para NYMÅNE
+  color_temp_step: !input color_temp_step
 
 trigger:
   - platform: mqtt
@@ -66,85 +71,60 @@ action:
   - condition: template
     value_template: "{{ action != '' }}"
       
-  # Manejo de acciones
+  # Manejo de acciones específicas
   - choose:
-      # Encender/Apagar (botón central)
+      # Encender luz
       - conditions:
           - condition: template
-            value_template: "{{ action == 'toggle' }}"
-        sequence:
-          - service: light.toggle
-            target: !input light
-            data:
-              transition: "{{ transition_time }}"
-      
-      # Control de brillo - Botón arriba simple
-      - conditions:
-          - condition: template
-            value_template: "{{ action == 'brightness_up_click' }}"
-        sequence:
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ is_on }}"
-                sequence:
-                  - service: light.turn_on
-                    target: !input light
-                    data:
-                      brightness_step_pct: "{{ brightness_step }}"
-                      transition: "{{ transition_time }}"
-            default:
-              - service: light.turn_on
-                target: !input light
-                data:
-                  brightness_pct: 50
-                  transition: "{{ transition_time }}"
-      
-      # Control de brillo - Botón abajo simple
-      - conditions:
-          - condition: template
-            value_template: "{{ action == 'brightness_down_click' }}"
-        sequence:
-          - choose:
-              - conditions:
-                  - condition: template
-                    value_template: "{{ is_on }}"
-                sequence:
-                  - service: light.turn_on
-                    target: !input light
-                    data:
-                      brightness_step_pct: "-{{ brightness_step }}"
-                      transition: "{{ transition_time }}"
-            default:
-              - service: light.turn_on
-                target: !input light
-                data:
-                  brightness_pct: "{{ min_brightness }}"
-                  transition: "{{ transition_time }}"
-      
-      # Brillo máximo - Mantener botón arriba
-      - conditions:
-          - condition: template
-            value_template: "{{ action == 'brightness_up_hold' }}"
+            value_template: "{{ action == 'on' }}"
         sequence:
           - service: light.turn_on
             target: !input light
             data:
-              brightness_pct: "{{ max_brightness }}"
               transition: "{{ transition_time }}"
       
-      # Brillo mínimo - Mantener botón abajo
+      # Apagar luz
       - conditions:
           - condition: template
-            value_template: "{{ action == 'brightness_down_hold' }}"
+            value_template: "{{ action == 'off' }}"
+        sequence:
+          - service: light.turn_off
+            target: !input light
+            data:
+              transition: "{{ transition_time }}"
+      
+      # Subir brillo gradualmente
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'brightness_move_up' }}"
         sequence:
           - service: light.turn_on
             target: !input light
             data:
-              brightness_pct: "{{ min_brightness }}"
+              brightness_step_pct: "{{ brightness_step }}"
               transition: "{{ transition_time }}"
       
-      # Temperatura de color cálida - Botón izquierdo simple
+      # Bajar brillo gradualmente
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'brightness_move_down' }}"
+        sequence:
+          - service: light.turn_on
+            target: !input light
+            data:
+              brightness_step_pct: "-{{ brightness_step }}"
+              transition: "{{ transition_time }}"
+      
+      # Detener cambio de brillo
+      - conditions:
+          - condition: template
+            value_template: "{{ action == 'brightness_stop' }}"
+        sequence:
+          - service: light.turn_on
+            target: !input light
+            data: {}
+      
+      # Bajar temperatura de color (más cálida)
       - conditions:
           - condition: template
             value_template: "{{ action == 'arrow_left_click' }}"
@@ -157,17 +137,17 @@ action:
                   - service: light.turn_on
                     target: !input light
                     data:
-                      kelvin: "{{ warm_color_temp }}"
+                      color_temp_step: "{{ color_temp_step }}"  # Aumenta el valor mired = luz más cálida
                       transition: "{{ transition_time }}"
             default:
               - service: light.turn_on
                 target: !input light
                 data:
-                  kelvin: "{{ warm_color_temp }}"
                   brightness_pct: 50
+                  color_temp: 350  # Valor mired medio-cálido por defecto
                   transition: "{{ transition_time }}"
       
-      # Temperatura de color fría - Botón derecho simple
+      # Subir temperatura de color (más fría)
       - conditions:
           - condition: template
             value_template: "{{ action == 'arrow_right_click' }}"
@@ -180,72 +160,12 @@ action:
                   - service: light.turn_on
                     target: !input light
                     data:
-                      kelvin: "{{ cold_color_temp }}"
+                      color_temp_step: "-{{ color_temp_step }}"  # Disminuye el valor mired = luz más fría
                       transition: "{{ transition_time }}"
             default:
               - service: light.turn_on
                 target: !input light
                 data:
-                  kelvin: "{{ cold_color_temp }}"
                   brightness_pct: 50
+                  color_temp: 250  # Valor mired medio-frío por defecto
                   transition: "{{ transition_time }}"
-      
-      # Mantener botón izquierdo - Escena nocturna (temperatura muy cálida y luz tenue)
-      - conditions:
-          - condition: template
-            value_template: "{{ action == 'arrow_left_hold' }}"
-        sequence:
-          - service: light.turn_on
-            target: !input light
-            data:
-              kelvin: "{{ warm_color_temp }}"
-              brightness_pct: 10
-              transition: "{{ transition_time }}"
-      
-      # Mantener botón derecho - Luz de trabajo (temperatura fría y brillo alto)
-      - conditions:
-          - condition: template
-            value_template: "{{ action == 'arrow_right_hold' }}"
-        sequence:
-          - service: light.turn_on
-            target: !input light
-            data:
-              kelvin: "{{ cold_color_temp }}"
-              brightness_pct: 100
-              transition: "{{ transition_time }}"
-      
-      # Doble clic en botón arriba - Brillo al 100% con temperatura intermedia
-      - conditions:
-          - condition: template
-            value_template: "{{ action == 'brightness_up_2_click' }}"
-        sequence:
-          - service: light.turn_on
-            target: !input light
-            data:
-              brightness_pct: 100
-              kelvin: "{{ mid_color_temp }}"
-              transition: 0.5
-      
-      # Doble clic en botón abajo - Modo nocturno suave
-      - conditions:
-          - condition: template
-            value_template: "{{ action == 'brightness_down_2_click' }}"
-        sequence:
-          - service: light.turn_on
-            target: !input light
-            data:
-              brightness_pct: 15
-              kelvin: "{{ warm_color_temp }}"
-              transition: 1.5
-      
-      # Botón central (mantener) - Luz neutra balanceada
-      - conditions:
-          - condition: template
-            value_template: "{{ action == 'toggle_hold' }}"
-        sequence:
-          - service: light.turn_on
-            target: !input light
-            data:
-              kelvin: "{{ mid_color_temp }}"
-              brightness_pct: 75
-              transition: "{{ transition_time }}"
