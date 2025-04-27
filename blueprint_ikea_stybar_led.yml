@@ -58,7 +58,7 @@ trigger:
 action:
   - variables:
       # Decodificar el payload JSON del mensaje MQTT
-      payload: "{{ trigger.payload | fromjson }}"
+      payload: "{{ trigger.payload | from_json }}"
       action: "{{ payload.action if payload.action is defined else '' }}"
       is_on: "{{ is_state(states[light].entity_id, 'on') }}"
       
