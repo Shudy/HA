@@ -1,19 +1,16 @@
 blueprint:
-  name: "IKEA STYRBAR para NYMÅNE LED2201G8"
+  name: "IKEA STYRBAR para NYMÅNE (MQTT Direct)"
   description: >
-    Control optimizado para bombilla IKEA NYMÅNE (LED2201G8) usando el mando IKEA STYRBAR (E2001/E2002).
-    Configurado específicamente para las capacidades de esta bombilla, incluyendo su rango
-    de temperatura de color (2200K-4000K) y brillo.
+    Control optimizado para bombilla IKEA NYMÅNE (LED2201G8) usando el mando IKEA STYRBAR (E2001/E2002)
+    utilizando directamente mensajes MQTT. Esta versión funciona incluso cuando el STYRBAR 
+    no expone entidades de acción en Home Assistant.
   domain: automation
   input:
-    remote:
-      name: "Control remoto IKEA STYRBAR"
-      description: "Selecciona el control remoto STYRBAR"
+    styrbar_mqtt_topic:
+      name: "Tema MQTT del STYRBAR"
+      description: "Ingresa el tema MQTT completo para tu dispositivo STYRBAR (ej: zigbee2mqtt/styrbar_salon)"
       selector:
-        entity:
-          domain: sensor
-          integration: mqtt
-          multiple: false
+        text:
     light:
       name: "Bombilla IKEA NYMÅNE"
       description: "Selecciona la bombilla NYMÅNE LED2201G8"
@@ -43,7 +40,7 @@ blueprint:
           unit_of_measurement: "%"
 
 variables:
-  remote: !input remote
+  mqtt_topic: !input styrbar_mqtt_topic
   light: !input light
   transition_time: !input transition_time
   brightness_step: !input brightness_step
@@ -55,14 +52,19 @@ variables:
   mid_color_temp: 3000   # Valor intermedio para NYMÅNE
 
 trigger:
-  - platform: state
-    entity_id: !input remote
-    attribute: action
+  - platform: mqtt
+    topic: "{{ mqtt_topic }}"
 
 action:
   - variables:
-      action: "{{ trigger.to_state.attributes.action }}"
+      # Decodificar el payload JSON del mensaje MQTT
+      payload: "{{ trigger.payload | fromjson }}"
+      action: "{{ payload.action if payload.action is defined else '' }}"
       is_on: "{{ is_state(states[light].entity_id, 'on') }}"
+      
+  # Verificar que el mensaje contiene una acción
+  - condition: template
+    value_template: "{{ action != '' }}"
       
   # Manejo de acciones
   - choose:
